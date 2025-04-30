@@ -1,5 +1,4 @@
 import time
-from enum import Enum
 from urllib.parse import urlencode
 
 import requests
@@ -168,23 +167,31 @@ class ParentalControl:
         return self.account_id
 
     def send_request(self, method='GET', *a, **k):
-        return requests.request(
-            method=method,
-            headers={
-                "Authorization": 'Bearer ' + self.get_access_token(),
-                "User-Agent": USER_AGENT,
-                "X-Moon-App-Id": MOBILE_APP_PKG,
-                "X-Moon-Os": OS_NAME,
-                "X-Moon-Os-Version": OS_VERSION,
-                "X-Moon-Model": DEVICE_MODEL,
-                "X-Moon-TimeZone": str(time.timezone),
-                "X-Moon-Os-Language": 'en-US',
-                "X-Moon-App-Language": 'en-US',
-                "X-Moon-App-Display-Version": MOBILE_APP_VERSION,
-                "X-Moon-App-Internal-Version": MOBILE_APP_BUILD,
-            },
-            *a, **k
-        )
+        i = 3
+        while i > 0:
+            i -= 1
+            resp = requests.request(
+                method=method,
+                headers={
+                    "Authorization": 'Bearer ' + self.get_access_token(),
+                    "User-Agent": USER_AGENT,
+                    "X-Moon-App-Id": MOBILE_APP_PKG,
+                    "X-Moon-Os": OS_NAME,
+                    "X-Moon-Os-Version": OS_VERSION,
+                    "X-Moon-Model": DEVICE_MODEL,
+                    "X-Moon-TimeZone": str(time.timezone),
+                    "X-Moon-Os-Language": 'en-US',
+                    "X-Moon-App-Language": 'en-US',
+                    "X-Moon-App-Display-Version": MOBILE_APP_VERSION,
+                    "X-Moon-App-Internal-Version": MOBILE_APP_BUILD,
+                },
+                *a, **k
+            )
+            if resp.ok:
+                return resp
+            elif 'invalid_token' in resp.text:
+                self.get_new_access_token()
+            time.sleep(1)
 
     def get_device(self, device_label: str):
         # get the list of devices
@@ -214,12 +221,6 @@ class ParentalControl:
         data = self._load()
         if device['deviceId'] not in data:
 
-            # resp = requests.get(
-            #     headers={
-            #         "Authorization": 'Bearer ' + self.get_access_token(),
-            #     },
-            #     url=BASE_URL + '/devices/' + device.get('deviceId') + '/parental_control_setting',
-            # )
             resp = self.send_request(
                 'GET',
                 url=BASE_URL + '/devices/' + device.get('deviceId') + '/parental_control_setting',
@@ -241,43 +242,18 @@ class ParentalControl:
         return data[device['deviceId']]
 
     def lock_device(self, device_label: str, lock: bool):
-        state_name = 'FORCED_TERMINATION' if lock else 'ALARM'
         device = self.get_device(device_label)
-        settings = self.get_parental_control_settings(device)
-
-        settings['playTimerRegulations']['restrictionMode'] = state_name
-        print('new settings=', settings)
 
         resp = self.send_request(
             "POST",
-            # url=BASE_URL + '/devices/' + device.get('deviceId') + '/parental_control_setting',
             url=BASE_URL + '/devices/' + device.get('deviceId') + '/alarm_setting_state',
-
-            # json=json.dumps({
-            #     'status': 'VISIBLE' if lock else 'INVISIBLE'
-            # })
-            # .replace('"VISIBLE"', 'VISIBLE')
-            # .replace('"INVISIBLE"', 'INVISIBLE')
-
             json={'status': 'TO_VISIBLE' if lock else 'TO_INVISIBLE'}
         )
         if resp.ok:
-            self._save(**{device['deviceId']: settings})
+            pass
         else:
             print(resp.reason)
             print(resp.headers)
             print(resp.content)
 
         print('lock_device', lock, 'ok=', resp.ok)
-
-
-class AlarmSettingState(Enum):
-    """Alarm setting states."""
-    SUCCESS = 0
-    TO_VISIBLE = 1
-    TO_INVISIBLE = 2
-    VISIBLE = 4
-    INVISIBLE = 8
-
-    def __str__(self) -> str:
-        return self.name

@@ -34,4 +34,4 @@ if not pc.access_token:
     else:
         pc.get_new_access_token()
 
-pc.lock_device('Grant', True)
+pc.lock_device('Grant', False)
