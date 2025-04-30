@@ -23,9 +23,9 @@ setup(
     long_description=long_description,
     license="PSF",
     keywords="grant miller ns parental controls",
-    url="https://github.com/GrantGMiller",  # project home page, if any
+    url="https://github.com/GrantGMiller/ns_parental_controls",  # project home page, if any
     project_urls={
-        "Source Code": "https://github.com/GrantGMiller",
+        "Source Code": "https://github.com/GrantGMiller/ns_parental_controls",
     }
 
 )

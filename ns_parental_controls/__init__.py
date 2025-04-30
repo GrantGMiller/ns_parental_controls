@@ -50,8 +50,9 @@ class ParentalControl:
         # Generate a temporary code that will be used to verify
         # the server response.
         # That way we know the response actually came from the server.
-        self.verification_code = random_string()
-        self._save(verification_code=self.verification_code)
+        if self.verification_code is None:
+            self.verification_code = random_string()
+            self._save(verification_code=self.verification_code)
 
         # build the login url
         params = {
@@ -111,6 +112,9 @@ class ParentalControl:
         )
         if not resp.ok:
             print(resp.text)
+        else:
+            # reset the verification code
+            self.verification_code = random_string()
 
         self.access_token = resp.json()['access_token']
         self.id_token = resp.json()['id_token']
@@ -121,7 +125,8 @@ class ParentalControl:
         self._save(
             access_token=self.access_token,
             id_token=self.id_token,
-            access_token_expires_timestamp=self.access_token_expires_timestamp
+            access_token_expires_timestamp=self.access_token_expires_timestamp,
+            verification_code=self.verification_code
         )
 
         return self.access_token
