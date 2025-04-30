@@ -3,10 +3,10 @@ from urllib.parse import urlencode
 
 import requests
 
-from gm_parental_controls.const import CLIENT_ID, REDIRECT_URI, SCOPE, AUTHORIZE_URL, SESSION_TOKEN_URL, TOKEN_URL, \
+from ns_parental_controls.const import CLIENT_ID, REDIRECT_URI, SCOPE, AUTHORIZE_URL, SESSION_TOKEN_URL, TOKEN_URL, \
     GRANT_TYPE, MY_ACCOUNT_ENDPOINT, USER_AGENT, MOBILE_APP_PKG, OS_NAME, OS_VERSION, DEVICE_MODEL, MOBILE_APP_VERSION, \
     MOBILE_APP_BUILD, ENDPOINTS, BASE_URL
-from gm_parental_controls.helpers import random_string, hash_it, parse_response_url
+from ns_parental_controls.helpers import random_string, hash_it, parse_response_url
 
 
 class ParentalControl:

@@ -1,7 +1,7 @@
 import os
 import json
 
-from gm_parental_controls import ParentalControl
+from ns_parental_controls import ParentalControl
 
 
 def save(**k):
@@ -34,4 +34,4 @@ if not pc.access_token:
     else:
         pc.get_new_access_token()
 
-pc.lock_device('Grant', False)
+pc.lock_device('My NS', False)
