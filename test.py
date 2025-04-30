@@ -1,7 +1,7 @@
 import os
 import json
 
-from gm_nintendo_parental import ParentalControl
+from gm_parental_controls import ParentalControl
 
 
 def save(**k):

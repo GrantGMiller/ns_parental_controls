@@ -3,20 +3,27 @@ from urllib.parse import urlencode
 
 import requests
 
-from gm_nintendo_parental.const import CLIENT_ID, REDIRECT_URI, SCOPE, AUTHORIZE_URL, SESSION_TOKEN_URL, TOKEN_URL, \
+from gm_parental_controls.const import CLIENT_ID, REDIRECT_URI, SCOPE, AUTHORIZE_URL, SESSION_TOKEN_URL, TOKEN_URL, \
     GRANT_TYPE, MY_ACCOUNT_ENDPOINT, USER_AGENT, MOBILE_APP_PKG, OS_NAME, OS_VERSION, DEVICE_MODEL, MOBILE_APP_VERSION, \
     MOBILE_APP_BUILD, ENDPOINTS, BASE_URL
-from gm_nintendo_parental.helpers import random_string, hash_it, parse_response_url
+from gm_parental_controls.helpers import random_string, hash_it, parse_response_url
 
 
 class ParentalControl:
+    '''
+    This will allow you to enable/disable a device.
+    Its based on the mobile app api so you have to do some wonky
+    copy/paste to make it work, but its not too bad for techies.
+    '''
+
     def __init__(self, save_state_callback=None, load_state_callback=None, callback_kwargs={}):
         '''
         If you need to re-hydrate this object, you can use
         the save/load callbacks to restore the state.
 
-        :param save_state_callback:
-        :param load_state_callback:
+        :param save_state_callback (Callable[[dict], None]):
+        :param load_state_callback (Callable[[dict], dict]):
+        :param callback_kwargs (dict): Some additional metadata that will be included in the save/load callbacks. Can be useful for storing a userId or something.
         '''
         self.save_state_callback = save_state_callback
         self.load_state_callback = load_state_callback
@@ -38,19 +45,17 @@ class ParentalControl:
         see a "select this account" button.
         Right-click on that button and copy the link.
         You will paste that link into process_auth_link() method.
-        :return:
+        :return str: The login url that you can click on.
         '''
         # Generate a temporary code that will be used to verify
         # the server response.
         # That way we know the response actually came from the server.
         self.verification_code = random_string()
-        if self.save_state_callback:
-            self._save(verification_code=self.verification_code)
+        self._save(verification_code=self.verification_code)
 
         # build the login url
         params = {
             "client_id": CLIENT_ID,
-            # "interacted": 1,
             "redirect_uri": REDIRECT_URI,
             "response_type": "session_token_code",
             "scope": SCOPE,
@@ -64,9 +69,9 @@ class ParentalControl:
 
     def process_auth_link(self, link: str):
         '''
-
-        :param link: string like 'npf54789befb391a838://auth#session_token_code=really-long-string&state=verification-code-here&session_state=abc123-'
-        :return:
+        This will use the link to get the needed tokens.
+        :param link (str): string like 'npf54789befb391a838://auth#session_token_code=really-long-string&state=verification-code-here&session_state=abc123-'
+        :return None:
         '''
         # pull out the important info from the link
         data = parse_response_url(link)
@@ -89,6 +94,11 @@ class ParentalControl:
         self.get_new_access_token()
 
     def get_new_access_token(self):
+        '''
+        Used to get either a new access token or to refresh an expired access token.
+        This is called by the needed methods, you should not need to call directly.
+        :return str: The access token used for HTTP requests
+        '''
         # trade the session_token for an access_token
 
         resp = requests.post(
@@ -117,13 +127,22 @@ class ParentalControl:
         return self.access_token
 
     def _save(self, **kwargs):
-
+        '''
+        Makes a call to the save_state_callback.
+        You can use this to sore the state somewhere (in your database/filesystem presumably)
+        :param kwargs (dict): kwargs you want to save, these will be appended/overwritten to the existing state
+        :return None:
+        '''
         if self.save_state_callback:
             d = self._load().copy()
             d.update(**kwargs)
             self.save_state_callback(**d)
 
     def _load(self):
+        '''
+        Used to load the state from your database.
+        :return dict: The state that is saved in the db, also initializes internal values like self.access_token
+        '''
         if self.load_state_callback:
             data = self.load_state_callback(**self.callback_kwargs)
 
@@ -142,6 +161,11 @@ class ParentalControl:
         return {'verification_code': self.verification_code}
 
     def get_access_token(self):
+        '''
+        Use this to access the current token.
+        This will handle any logic for refreshing a token that is expired.
+        :return str:
+        '''
         if self.access_token and self.access_token_expires_timestamp < time.time():
             # the access token exist and is not expired
             return self.access_token
@@ -151,7 +175,12 @@ class ParentalControl:
             return self.get_new_access_token()
 
     def get_account_id(self):
-
+        '''
+        Get the user's account_id.
+        This is needed for some other HTTP requests.
+        You shouldnt have to call this directly.
+        :return str:
+        '''
         if self.account_id is None:
             resp = requests.get(
                 url=MY_ACCOUNT_ENDPOINT,
@@ -167,6 +196,18 @@ class ParentalControl:
         return self.account_id
 
     def send_request(self, method='GET', *a, **k):
+        '''
+        All API requests go through here.
+        It handles authentication and headers and such.
+
+        Note that if the request fails because of an invalid_token,
+        this will refresh the token and try again 3 times.
+
+        :param method (str): 'get' 'post', etc
+        :param a:
+        :param k:
+        :return requests.Response: The response object from the server.
+        '''
         i = 3
         while i > 0:
             i -= 1
@@ -194,6 +235,11 @@ class ParentalControl:
             time.sleep(1)
 
     def get_device(self, device_label: str):
+        '''
+        Get a list of device dicts.
+        :param device_label (str): The name of the device
+        :return dict | None: The device dict (should prob make this a proper object)
+        '''
         # get the list of devices
 
         resp = self.send_request(
@@ -242,6 +288,12 @@ class ParentalControl:
         return data[device['deviceId']]
 
     def lock_device(self, device_label: str, lock: bool):
+        '''
+        This is shown as "Disable Alarms for Today" in the app.
+        :param device_label (str): The name of the device
+        :param lock (bool): True means disable the device, False means enable the device.
+        :return None:
+        '''
         device = self.get_device(device_label)
 
         resp = self.send_request(
