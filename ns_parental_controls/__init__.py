@@ -1,3 +1,4 @@
+import datetime
 import time
 from urllib.parse import urlencode
 
@@ -5,9 +6,8 @@ import requests
 
 from ns_parental_controls.const import CLIENT_ID, REDIRECT_URI, SCOPE, AUTHORIZE_URL, SESSION_TOKEN_URL, TOKEN_URL, \
     GRANT_TYPE, MY_ACCOUNT_ENDPOINT, USER_AGENT, MOBILE_APP_PKG, OS_NAME, OS_VERSION, DEVICE_MODEL, MOBILE_APP_VERSION, \
-    MOBILE_APP_BUILD, ENDPOINTS, BASE_URL
+    MOBILE_APP_BUILD, ENDPOINTS, BASE_URL, DAYS_OF_WEEK
 from ns_parental_controls.helpers import random_string, hash_it, parse_response_url
-
 
 class ParentalControl:
     '''
@@ -16,7 +16,7 @@ class ParentalControl:
     copy/paste to make it work, but its not too bad for techies.
     '''
 
-    def __init__(self, save_state_callback=None, load_state_callback=None, callback_kwargs={}):
+    def __init__(self, save_state_callback=None, load_state_callback=None, callback_kwargs={}, debug=False):
         '''
         If you need to re-hydrate this object, you can use
         the save/load callbacks to restore the state.
@@ -25,6 +25,8 @@ class ParentalControl:
         :param load_state_callback (Callable[[dict], dict]):
         :param callback_kwargs (dict): Some additional metadata that will be included in the save/load callbacks. Can be useful for storing a userId or something.
         '''
+        self.debug = debug 
+        
         self.save_state_callback = save_state_callback
         self.load_state_callback = load_state_callback
         self.callback_kwargs = callback_kwargs
@@ -38,6 +40,11 @@ class ParentalControl:
 
         self._load()
 
+        if self.verification_code is None:
+            self.verification_code = random_string()
+            self._save(verification_code=self.verification_code)
+            
+
     def get_auth_url(self):
         '''
         The user should go to this link.
@@ -50,11 +57,9 @@ class ParentalControl:
         # Generate a temporary code that will be used to verify
         # the server response.
         # That way we know the response actually came from the server.
-        if self.verification_code is None:
-            self.verification_code = random_string()
-            self._save(verification_code=self.verification_code)
 
         # build the login url
+        self.print('get_auth_url verification_code=', self.verification_code)
         params = {
             "client_id": CLIENT_ID,
             "redirect_uri": REDIRECT_URI,
@@ -89,6 +94,9 @@ class ParentalControl:
                 'User-Agent': 'NASDKAPI; Android',
             }
         )
+        if not resp.ok:
+            self.print('process_auth_link failed', resp.text)
+
         self.session_token = resp.json().get('session_token')
         self._save(session_token=self.session_token)
 
@@ -101,7 +109,7 @@ class ParentalControl:
         :return str: The access token used for HTTP requests
         '''
         # trade the session_token for an access_token
-
+        self.print('get_new_access_token')
         resp = requests.post(
             url=TOKEN_URL,
             json={
@@ -111,9 +119,9 @@ class ParentalControl:
             }
         )
         if not resp.ok:
-            print(resp.text)
+            self.print(resp.text)
         else:
-            # reset the verification code
+            # reset the verification code, so that we use a new code next time we get a session_token
             self.verification_code = random_string()
 
         self.access_token = resp.json()['access_token']
@@ -138,9 +146,14 @@ class ParentalControl:
         :param kwargs (dict): kwargs you want to save, these will be appended/overwritten to the existing state
         :return None:
         '''
+        self.print('nspc save(', kwargs)
         if self.save_state_callback:
             d = self._load().copy()
-            d.update(**kwargs)
+            d.update(kwargs)
+
+            if 'verification_code' not in d:
+                d['verification_code'] = self.verification_code
+
             self.save_state_callback(**d)
 
     def _load(self):
@@ -151,7 +164,10 @@ class ParentalControl:
         if self.load_state_callback:
             data = self.load_state_callback(**self.callback_kwargs)
 
-            self.verification_code = data.get('verification_code', None) or random_string()
+            code = data.get('verification_code', None)
+            if code:
+                self.verification_code = code
+
             self.session_token = data.get('session_token', None)
 
             self.access_token = data.get('access_token', None)
@@ -159,9 +175,9 @@ class ParentalControl:
             self.access_token_expires_timestamp = data.get('access_token_expires_timestamp', 0)
 
             self.account_id = data.get('account_id', None)
+
+            self.print('nspc load return', data)
             return data
-        else:
-            self.verification_code = random_string()
 
         return {'verification_code': self.verification_code}
 
@@ -171,6 +187,9 @@ class ParentalControl:
         This will handle any logic for refreshing a token that is expired.
         :return str:
         '''
+        if not self.session_token:
+            return None
+
         if self.access_token and self.access_token_expires_timestamp < time.time():
             # the access token exist and is not expired
             return self.access_token
@@ -186,15 +205,14 @@ class ParentalControl:
         You shouldnt have to call this directly.
         :return str:
         '''
+        self.print('get_account_id')
         if self.account_id is None:
-            resp = requests.get(
+            resp = self.send_request(
+                method='GET',
                 url=MY_ACCOUNT_ENDPOINT,
-                headers={
-                    "Authorization": f"Bearer {self.get_access_token()}"
-                }
             )
-            print('resp=', resp)
-            print(resp.json())
+            self.print('get_account_id resp=', resp.text)
+            self.print(resp.json())
             self.account_id = resp.json()['id']
             self._save(account_id=self.account_id)
 
@@ -213,6 +231,7 @@ class ParentalControl:
         :param k:
         :return requests.Response: The response object from the server.
         '''
+        self.print('send_request(method=', method, a, k)
         i = 3
         while i > 0:
             i -= 1
@@ -233,11 +252,14 @@ class ParentalControl:
                 },
                 *a, **k
             )
-            if resp.ok:
+            if not resp.ok:
+                self.print('resp failed', resp.text)
+                if 'invalid_token' in resp.text:
+                    self.get_new_access_token()
+            else:
                 return resp
-            elif 'invalid_token' in resp.text:
-                self.get_new_access_token()
             time.sleep(1)
+        return resp
 
     def get_device(self, device_label: str):
         '''
@@ -245,6 +267,7 @@ class ParentalControl:
         :param device_label (str): The name of the device
         :return dict | None: The device dict (should prob make this a proper object)
         '''
+        self.print('get_device(', device_label)
         # get the list of devices
 
         resp = self.send_request(
@@ -256,16 +279,17 @@ class ParentalControl:
 
         )
         if not resp.ok:
-            print('error getting device', resp.text)
+            self.print('error getting device', resp.text)
 
         for dev in resp.json().get('items', []):
+            self.print('dev=', dev)
             if dev.get('label', '') == device_label:
-                print('found device=', dev)
+                self.print('found device=', dev)
                 return dev
         else:
-            print('device not found')
+            self.print('device not found')
             for dev in resp.json().get('items', []):
-                print('dev=', dev)
+                self.print('dev=', dev)
         return None
 
     def get_parental_control_settings(self, device):
@@ -278,8 +302,8 @@ class ParentalControl:
 
             )
             if resp.ok:
-                print('get_parental_control_settings success')
-                print(resp.json())
+                self.print('get_parental_control_settings success')
+                self.print(resp.json())
 
                 self._save(**{
                     device['deviceId']: resp.json()
@@ -288,8 +312,8 @@ class ParentalControl:
                     device['deviceId']: resp.json()
                 })
             else:
-                print('get settings failed', resp.text)
-        print('old settings=', data[device['deviceId']])
+                self.print('get settings failed', resp.text)
+
         return data[device['deviceId']]
 
     def lock_device(self, device_label: str, lock: bool):
@@ -309,8 +333,57 @@ class ParentalControl:
         if resp.ok:
             pass
         else:
-            print(resp.reason)
-            print(resp.headers)
-            print(resp.content)
+            self.print(resp.reason)
+            self.print(resp.headers)
+            self.print(resp.content)
 
-        print('lock_device', lock, 'ok=', resp.ok)
+        self.print('lock_device', lock, 'ok=', resp.ok)
+
+    def set_playtime_minutes_for_today(self, device_label: str, minutes: int):
+        # minutes in increments of 15 max 360(6hours)
+        mins = (int(minutes / 15) * 15)
+        self.print('mins=', mins)
+        device = self.get_device(device_label)
+
+        settings = self.get_parental_control_settings(device)
+
+        # set the mode to daily, so we can set limits for just today
+        settings["playTimerRegulations"]["timerMode"] = 'EACH_DAY_OF_THE_WEEK'
+        day_of_week_regs = settings["playTimerRegulations"]["eachDayOfTheWeekRegulations"]
+        current_day = DAYS_OF_WEEK[datetime.datetime.now().weekday()]
+        day_of_week_regs[current_day]["timeToPlayInOneDay"]["enabled"] = True
+        if mins == 0 and "limitTime" in day_of_week_regs[current_day]["timeToPlayInOneDay"]:
+            day_of_week_regs[current_day]["timeToPlayInOneDay"].pop("limitTime")
+        else:
+            day_of_week_regs[current_day]["timeToPlayInOneDay"]["limitTime"] = mins
+
+        # not sure why we need this but we do
+        if "bedtimeStartingTime" in settings["playTimerRegulations"]:
+            if settings["playTimerRegulations"].get("bedtimeStartingTime", {}).get("hour",
+                                                                                   0) == 0:
+                settings["playTimerRegulations"].pop("bedtimeStartingTime")
+
+        self.set_settings(device, settings)
+
+    def set_settings(self, device: dict, settings: dict):
+        settings.pop('deviceId', None)
+        # we need to send a subset of the settings
+        data = {
+            "unlockCode": settings["unlockCode"],
+            "functionalRestrictionLevel": settings["functionalRestrictionLevel"],
+            "customSettings": settings["customSettings"],
+            "playTimerRegulations": settings["playTimerRegulations"]
+        }
+        resp = self.send_request(
+            method='POST',
+            url="{BASE_URL}/devices/{DEVICE_ID}/parental_control_setting".format(
+                BASE_URL=BASE_URL,
+                DEVICE_ID=device['deviceId']
+            ),
+            json=data,
+        )
+        return resp
+
+    def print(self, *a, **k):
+        if self.debug:
+            print(*a, **k)

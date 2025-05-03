@@ -7,6 +7,7 @@ OS_STR = f"{OS_NAME} {OS_VERSION}"
 DEVICE_MODEL = "Pixel 4 XL"
 BASE_URL = "https://api-lp1.pctl.srv.nintendo.net/moon/v1"
 USER_AGENT = f"moon_ANDROID/{MOBILE_APP_VERSION} ({MOBILE_APP_PKG}; build:{MOBILE_APP_BUILD}; {OS_STR})"
+DAYS_OF_WEEK = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
 
 ENDPOINTS = {
     "get_account_details": {

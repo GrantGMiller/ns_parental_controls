@@ -1,5 +1,5 @@
-import os
 import json
+import os
 
 from ns_parental_controls import ParentalControl
 
@@ -34,4 +34,5 @@ if not pc.access_token:
     else:
         pc.get_new_access_token()
 
-pc.lock_device('My NS', False)
+# pc.lock_device('My NS', False)
+# pc.set_playtime_minutes_for_today('Grant', 30)
