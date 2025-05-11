@@ -336,6 +336,14 @@ class ParentalControl:
 
         return data[device['deviceId']]
 
+    def get_allowed_playtime_today(self, device_label: str):
+        device = self.get_device(device_label)
+        settings = self.get_parental_control_settings(device)
+        settings["playTimerRegulations"]["timerMode"] = 'EACH_DAY_OF_THE_WEEK'
+        day_of_week_regs = settings["playTimerRegulations"]["eachDayOfTheWeekRegulations"]
+        current_day = DAYS_OF_WEEK[datetime.datetime.now().weekday()]
+        return day_of_week_regs[current_day]["timeToPlayInOneDay"]["limitTime"]
+
     def lock_device(self, device_label: str, lock: bool):
         '''
         This is shown as "Disable Alarms for Today" in the app.
@@ -414,7 +422,6 @@ class ParentalControl:
         today_date_iso = datetime.date.today().isoformat()
         for day_snapshot in resp.json().get('items', []):
             if day_snapshot.get('date', None) == today_date_iso:
-
                 playtime_seconds = day_snapshot.get('playingTime', 0)
                 playtime_minutes = playtime_seconds / 60
                 self.print(device_label, 'played for', playtime_minutes, 'minutes')

@@ -11,7 +11,8 @@ packages = ['ns_parental_controls']
 setup(
     name="ns_parental_controls",
 
-    version="1.4.2",  # added get_today_playtime_minutes to get the current amount of time the user has played on the device
+    version="1.4.3",  # added get_allowed_playtime_today
+    # version="1.4.2",  # added get_today_playtime_minutes to get the current amount of time the user has played on the device
     # version="1.4.1",  # bug fix in set_playtime method when minutes was 0
     # version="1.4.0",  # added method to add time to existing play time
     # version="1.3.2",  # changed name of method to set_playtime_minutes_for_today and added flag for disableself.print
