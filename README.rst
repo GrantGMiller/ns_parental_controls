@@ -1,6 +1,4 @@
-Here a simple script to enable/disable your NS.
-This is the equiv of toggling the "Disable Alarms for Today" in the app.
-
+Here a simple script to control your NS
 ::
 
     import os
@@ -41,4 +39,10 @@ This is the equiv of toggling the "Disable Alarms for Today" in the app.
 
     # True means disable the NS
     # False means enable the NS
-    pc.lock_device('My NS', False)
+    pc.lock_device(config.DEVICE_LABEL, False) # this is equiv to using the "Disable Alarms for Toady" in the app
+
+    # use this command to set the playtime to a particular value
+    # pc.set_playtime_minutes_for_today(config.DEVICE_LABEL, 30)
+
+    # use this to add an amount of time to the existing value
+    pc.add_playtime_minutes_for_today(config.DEVICE_LABEL, 30)

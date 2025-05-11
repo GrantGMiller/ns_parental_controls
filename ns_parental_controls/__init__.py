@@ -9,6 +9,7 @@ from ns_parental_controls.const import CLIENT_ID, REDIRECT_URI, SCOPE, AUTHORIZE
     MOBILE_APP_BUILD, ENDPOINTS, BASE_URL, DAYS_OF_WEEK
 from ns_parental_controls.helpers import random_string, hash_it, parse_response_url
 
+
 class ParentalControl:
     '''
     This will allow you to enable/disable a device.
@@ -25,8 +26,8 @@ class ParentalControl:
         :param load_state_callback (Callable[[dict], dict]):
         :param callback_kwargs (dict): Some additional metadata that will be included in the save/load callbacks. Can be useful for storing a userId or something.
         '''
-        self.debug = debug 
-        
+        self.debug = debug
+
         self.save_state_callback = save_state_callback
         self.load_state_callback = load_state_callback
         self.callback_kwargs = callback_kwargs
@@ -43,7 +44,6 @@ class ParentalControl:
         if self.verification_code is None:
             self.verification_code = random_string()
             self._save(verification_code=self.verification_code)
-            
 
     def get_auth_url(self):
         '''
@@ -257,9 +257,20 @@ class ParentalControl:
                 if 'invalid_token' in resp.text:
                     self.get_new_access_token()
             else:
+                self.print('send_request resp=', resp.text)
                 return resp
             time.sleep(1)
         return resp
+
+    def get_device_id(self, device_label: str):
+        if self._load():
+            data = self._load()
+            device_id = data.get('device_map', {}).get(device_label, None)
+            if device_id:
+                return device_id
+            else:
+                device = self.get_device(device_label)
+                return device['deviceId']
 
     def get_device(self, device_label: str):
         '''
@@ -281,38 +292,47 @@ class ParentalControl:
         if not resp.ok:
             self.print('error getting device', resp.text)
 
+        device_map = {}
+        return_device = None
+
         for dev in resp.json().get('items', []):
             self.print('dev=', dev)
+
+            # save the device_label/deviceId for later
+            device_map[dev.get('label', '')] = dev.get('deviceId', None)
+
             if dev.get('label', '') == device_label:
                 self.print('found device=', dev)
-                return dev
+                return_device = dev
         else:
             self.print('device not found')
             for dev in resp.json().get('items', []):
                 self.print('dev=', dev)
-        return None
+
+        self._save(device_map=device_map)
+        return return_device
 
     def get_parental_control_settings(self, device):
         data = self._load()
-        if device['deviceId'] not in data:
 
-            resp = self.send_request(
-                'GET',
-                url=BASE_URL + '/devices/' + device.get('deviceId') + '/parental_control_setting',
+        resp = self.send_request(
+            'GET',
+            url=BASE_URL + '/devices/' + device.get('deviceId') + '/parental_control_setting',
 
-            )
-            if resp.ok:
-                self.print('get_parental_control_settings success')
-                self.print(resp.json())
+        )
+        if resp.ok:
+            self.print('get_parental_control_settings success')
+            self.print(resp.json())
 
-                self._save(**{
-                    device['deviceId']: resp.json()
-                })
-                data.update({
-                    device['deviceId']: resp.json()
-                })
-            else:
-                self.print('get settings failed', resp.text)
+            self._save(**{
+                device['deviceId']: resp.json()
+            })
+            data.update({
+                device['deviceId']: resp.json()
+            })
+            self.print('get settings resp.json=', resp.json)
+        else:
+            self.print('get settings failed', resp.text)
 
         return data[device['deviceId']]
 
@@ -323,11 +343,11 @@ class ParentalControl:
         :param lock (bool): True means disable the device, False means enable the device.
         :return None:
         '''
-        device = self.get_device(device_label)
+        deviceId = self.get_device_id(device_label)
 
         resp = self.send_request(
             "POST",
-            url=BASE_URL + '/devices/' + device.get('deviceId') + '/alarm_setting_state',
+            url=BASE_URL + '/devices/' + deviceId + '/alarm_setting_state',
             json={'status': 'TO_VISIBLE' if lock else 'TO_INVISIBLE'}
         )
         if resp.ok:
@@ -341,8 +361,7 @@ class ParentalControl:
 
     def set_playtime_minutes_for_today(self, device_label: str, minutes: int):
         # minutes in increments of 15 max 360(6hours)
-        mins = (int(minutes / 15) * 15)
-        self.print('mins=', mins)
+        self.print('set_playtime_minutes_for_today minutes=', minutes)
         device = self.get_device(device_label)
 
         settings = self.get_parental_control_settings(device)
@@ -352,10 +371,7 @@ class ParentalControl:
         day_of_week_regs = settings["playTimerRegulations"]["eachDayOfTheWeekRegulations"]
         current_day = DAYS_OF_WEEK[datetime.datetime.now().weekday()]
         day_of_week_regs[current_day]["timeToPlayInOneDay"]["enabled"] = True
-        if mins == 0 and "limitTime" in day_of_week_regs[current_day]["timeToPlayInOneDay"]:
-            day_of_week_regs[current_day]["timeToPlayInOneDay"].pop("limitTime")
-        else:
-            day_of_week_regs[current_day]["timeToPlayInOneDay"]["limitTime"] = mins
+        day_of_week_regs[current_day]["timeToPlayInOneDay"]["limitTime"] = minutes
 
         # not sure why we need this but we do
         if "bedtimeStartingTime" in settings["playTimerRegulations"]:
@@ -365,8 +381,48 @@ class ParentalControl:
 
         self.set_settings(device, settings)
 
+    def add_playtime_minutes_for_today(self, device_label: str, minutes_to_add: int):
+        # need to add time to the existing time
+        device = self.get_device(device_label)
+        settings = self.get_parental_control_settings(device)
+
+        current_day = DAYS_OF_WEEK[datetime.datetime.now().weekday()]
+        day_of_week_regs = settings["playTimerRegulations"]["eachDayOfTheWeekRegulations"]
+        old_minutes = day_of_week_regs[current_day]["timeToPlayInOneDay"]["limitTime"]
+        new_minutes = old_minutes + minutes_to_add
+        self.print('old_minutes=', old_minutes)
+        self.print('new_minutes=', new_minutes)
+        day_of_week_regs[current_day]["timeToPlayInOneDay"]["limitTime"] = new_minutes
+
+        # not sure why we need this but we do
+        if "bedtimeStartingTime" in settings["playTimerRegulations"]:
+            if settings["playTimerRegulations"].get("bedtimeStartingTime", {}).get("hour",
+                                                                                   0) == 0:
+                settings["playTimerRegulations"].pop("bedtimeStartingTime")
+
+        self.set_settings(device, settings)
+
+    def get_today_playtime_minutes(self, device_label: str):
+        # get the amount of time the user has played on this device today
+        dev_id = self.get_device_id(device_label)
+        resp = self.send_request(
+            method='GET',
+            url=f'{BASE_URL}/devices/{dev_id}/daily_summaries'
+        )
+        self.print('get_today_playtime resp.json=', resp.json())
+
+        today_date_iso = datetime.date.today().isoformat()
+        for day_snapshot in resp.json().get('items', []):
+            if day_snapshot.get('date', None) == today_date_iso:
+
+                playtime_seconds = day_snapshot.get('playingTime', 0)
+                playtime_minutes = playtime_seconds / 60
+                self.print(device_label, 'played for', playtime_minutes, 'minutes')
+                return int(playtime_minutes)
+
+        return 0
+
     def set_settings(self, device: dict, settings: dict):
-        settings.pop('deviceId', None)
         # we need to send a subset of the settings
         data = {
             "unlockCode": settings["unlockCode"],
@@ -374,6 +430,7 @@ class ParentalControl:
             "customSettings": settings["customSettings"],
             "playTimerRegulations": settings["playTimerRegulations"]
         }
+        self.print('set_settings', device['deviceId'], data)
         resp = self.send_request(
             method='POST',
             url="{BASE_URL}/devices/{DEVICE_ID}/parental_control_setting".format(
@@ -382,6 +439,7 @@ class ParentalControl:
             ),
             json=data,
         )
+
         return resp
 
     def print(self, *a, **k):

@@ -1,6 +1,7 @@
 import json
 import os
 
+import config
 from ns_parental_controls import ParentalControl
 
 
@@ -24,7 +25,8 @@ def load(**k):
 pc = ParentalControl(
     save_state_callback=save,
     load_state_callback=load,
-    callback_kwargs={'random': 'kwargs'}
+    callback_kwargs={'random': 'kwargs'},
+    debug=True
 )
 
 if not pc.access_token:
@@ -35,4 +37,7 @@ if not pc.access_token:
         pc.get_new_access_token()
 
 # pc.lock_device('My NS', False)
-# pc.set_playtime_minutes_for_today('Grant', 30)
+# pc.set_playtime_minutes_for_today(config.DEVICE_LABEL, 30)
+# pc.add_playtime_minutes_for_today(config.DEVICE_LABEL, 30)
+# dev = pc.get_device('Grant')
+pc.get_today_playtime_minutes('Grant')
